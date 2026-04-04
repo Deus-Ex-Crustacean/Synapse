@@ -119,8 +119,20 @@ function scheduleProcess() {
   }
 }
 
+function printEventMessage(event: Event) {
+  const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
+  if (!payload?.message) return;
+
+  if (payload.fromName) {
+    process.stdout.write(`▶ ${payload.fromName}: ${payload.message}\n`);
+  } else if (event.type.startsWith("message.")) {
+    process.stdout.write(`▶ You: ${payload.message}\n`);
+  }
+}
+
 function onEvent(event: Event) {
   log(`Event received: ${event.type} (${event.id})`);
+  printEventMessage(event);
   batch.push(event);
   scheduleProcess();
 }
