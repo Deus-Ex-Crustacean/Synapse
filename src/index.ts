@@ -1,3 +1,5 @@
+import { appendFileSync } from "fs";
+import { join } from "path";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
@@ -6,6 +8,13 @@ import { spawnClaude } from "./claude";
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
+const LOG_PATH = join(process.cwd(), "synapse.log");
+
+function log(...args: unknown[]) {
+  const line = `[${new Date().toISOString()}] ${args.map(String).join(" ")}`;
+  console.log(line);
+  appendFileSync(LOG_PATH, line + "\n");
+}
 
 interface Event {
   id: string;
@@ -27,6 +36,7 @@ async function processBatch() {
   claudeRunning = true;
   const currentBatch = batch;
   batch = [];
+  log(`Processing batch of ${currentBatch.length} event(s)`);
 
   const payload = JSON.stringify({ events: currentBatch });
   let retryDelay = 1000;
@@ -34,7 +44,7 @@ async function processBatch() {
   while (true) {
     const exitCode = await spawnClaude(payload);
     if (exitCode === 0) break;
-    console.error(`Claude exited with code ${exitCode} — retrying in ${retryDelay}ms`);
+    log(`Claude exited with code ${exitCode} — retrying in ${retryDelay}ms`);
     await new Promise((r) => setTimeout(r, retryDelay));
     retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
   }
@@ -63,6 +73,7 @@ function scheduleProcess() {
 }
 
 function onEvent(event: Event) {
+  log(`Event received: ${event.type} (${event.id})`);
   batch.push(event);
   scheduleProcess();
 }
@@ -70,7 +81,9 @@ function onEvent(event: Event) {
 async function start() {
   const lastTimestamp = readTimestamp();
   lastProcessedTimestamp = lastTimestamp;
+  log("Authenticating with Ego...");
   jwt = await authenticate();
+  log("Authenticated. Connecting to Cortex SSE...");
 
   let reconnectDelay = 1000;
 
@@ -83,14 +96,14 @@ async function start() {
         since: lastProcessedTimestamp,
         onEvent,
         onAuthError: async () => {
-          console.log("Got 401 — refreshing token and reconnecting");
+          log("Got 401 — refreshing token and reconnecting");
           jwt = await refreshToken();
           connect();
         },
       });
     } catch (err) {
-      console.error("SSE connection error:", err);
-      console.log(`Reconnecting in ${reconnectDelay}ms...`);
+      log("SSE connection error:", err);
+      log(`Reconnecting in ${reconnectDelay}ms...`);
       setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, MAX_RETRY_DELAY_MS);
     }
@@ -100,6 +113,6 @@ async function start() {
 }
 
 start().catch((err) => {
-  console.error("Fatal:", err);
+  log("Fatal:", err);
   process.exit(1);
 });
