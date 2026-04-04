@@ -8,7 +8,7 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
     ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"],
     {
       cwd: process.cwd(),
-      stdin: input ? new Blob([input]) : undefined,
+      stdin: new Blob([input]),
       stdout: "pipe",
       stderr: "inherit",
     },

@@ -146,7 +146,7 @@ async function start() {
   if (previousStatus === "running") {
     log("Previous instance was killed mid-execution — resuming Claude with --continue");
     setStatus("running");
-    const result = await spawnClaude("");
+    const result = await spawnClaude("Continue from where you left off.");
     if (result.exitCode === 0) {
       log("Resume completed successfully");
     } else {
