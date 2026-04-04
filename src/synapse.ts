@@ -19,6 +19,18 @@ interface StreamOptions {
   onAuthError: () => void;
 }
 
+export async function publishEvent(jwt: string, event: { type: string; [key: string]: unknown }): Promise<void> {
+  const res = await fetch(`${CORTEX_URL}/publish`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(event),
+  });
+  if (!res.ok) throw new Error(`Publish failed: ${res.status} ${await res.text()}`);
+}
+
 export async function openEventStream(opts: StreamOptions): Promise<void> {
   const { jwt, eventTypes, since, onEvent, onAuthError } = opts;
 
