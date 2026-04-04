@@ -1,9 +1,21 @@
 import { appendFileSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { init } from "@launchdarkly/node-server-sdk";
+import { Observability } from "@launchdarkly/observability-node";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
 import { spawnClaude, type ClaudeResult } from "./claude";
+
+const ldClient = init("sdk-699cdf13-faef-4bf9-99dc-1dd8972f1fa9", {
+  plugins: [
+    new Observability({
+      serviceName: "synapse",
+      serviceVersion: process.env.npm_package_version || "dev",
+      environment: process.env.NODE_ENV || "development",
+    }),
+  ],
+});
 
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);

@@ -9,5 +9,8 @@
   "devDependencies": {
     "@types/bun": "latest"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@launchdarkly/node-server-sdk": "^9.10.10",
+    "@launchdarkly/observability-node": "^1.1.0"
+  }
 }
