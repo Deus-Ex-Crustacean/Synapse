@@ -129,8 +129,8 @@ function printEventMessage(event: Event) {
 
   if (payload.fromName) {
     process.stdout.write(`▶ ${payload.fromName}: ${payload.message}\n`);
-  } else if (event.type.startsWith("message.")) {
-    process.stdout.write(`▶ You: ${payload.message}\n`);
+  } else if (event.type.startsWith("prompt.")) {
+    process.stdout.write(`Prompt: ${payload.message}\n`);
   }
 }
 
