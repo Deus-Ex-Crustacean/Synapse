@@ -3,7 +3,7 @@ import { join } from "path";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
-import { spawnClaude } from "./claude";
+import { spawnClaude, type ClaudeResult } from "./claude";
 
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
@@ -20,6 +20,36 @@ function log(...args: unknown[]) {
   const line = `[synapse] [${new Date().toISOString()}] ${args.map(String).join(" ")}`;
   console.error(line);
   appendFileSync(LOG_PATH, line + "\n");
+}
+
+function parseRateLimitWait(output: string): number | null {
+  const match = output.match(/resets\s+(\d+)(am|pm)\s+\((.+?)\)/i);
+  if (!match) return null;
+
+  let hour = parseInt(match[1], 10);
+  const ampm = match[2].toLowerCase();
+  const tz = match[3];
+
+  if (ampm === "pm" && hour !== 12) hour += 12;
+  if (ampm === "am" && hour === 12) hour = 0;
+
+  // Build a date string for today at the reset hour in the given timezone
+  const now = new Date();
+  const todayStr = now.toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD
+  const resetDate = new Date(`${todayStr}T${String(hour).padStart(2, "0")}:00:00`);
+
+  // Convert to the target timezone by computing the offset
+  const resetInTz = new Date(resetDate.toLocaleString("en-US", { timeZone: tz }));
+  const resetUtc = new Date(resetDate.getTime() + (resetDate.getTime() - resetInTz.getTime()));
+
+  let waitMs = resetUtc.getTime() - now.getTime();
+  // If the reset time appears to be in the past, assume it's tomorrow
+  if (waitMs < 0) waitMs += 24 * 60 * 60 * 1000;
+  // Add a small buffer
+  waitMs += 60_000;
+
+  log(`Rate limit detected — reset at ${hour}:00 ${ampm} (${tz}), waiting ${Math.round(waitMs / 60000)}m`);
+  return waitMs;
 }
 
 interface Event {
@@ -52,14 +82,16 @@ async function processBatch() {
   while (true) {
     log("Spawning Claude...");
     const startTime = Date.now();
-    const exitCode = await spawnClaude(payload);
+    const result = await spawnClaude(payload);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    if (exitCode === 0) {
+    if (result.exitCode === 0) {
       log(`Claude finished successfully in ${elapsed}s`);
       break;
     }
-    log(`Claude exited with code ${exitCode} after ${elapsed}s — retrying in ${retryDelay}ms`);
-    await new Promise((r) => setTimeout(r, retryDelay));
+
+    const waitMs = parseRateLimitWait(result.output) ?? retryDelay;
+    log(`Claude exited with code ${result.exitCode} after ${elapsed}s — retrying in ${Math.round(waitMs / 1000)}s`);
+    await new Promise((r) => setTimeout(r, waitMs));
     retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
   }
 

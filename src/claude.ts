@@ -1,4 +1,9 @@
-export async function spawnClaude(input: string): Promise<number> {
+export interface ClaudeResult {
+  exitCode: number;
+  output: string;
+}
+
+export async function spawnClaude(input: string): Promise<ClaudeResult> {
   const proc = Bun.spawn(
     ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--output-format", "stream-json"],
     {
@@ -12,6 +17,7 @@ export async function spawnClaude(input: string): Promise<number> {
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let output = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -27,8 +33,10 @@ export async function spawnClaude(input: string): Promise<number> {
         const msg = JSON.parse(line);
         if (msg.type === "content_block_delta" && msg.delta?.text) {
           process.stdout.write(msg.delta.text);
+          output += msg.delta.text;
         } else if (msg.type === "result" && msg.result?.text) {
           process.stdout.write(msg.result.text);
+          output += msg.result.text;
         }
       } catch {
         // skip unparseable lines
@@ -42,8 +50,10 @@ export async function spawnClaude(input: string): Promise<number> {
       const msg = JSON.parse(buffer);
       if (msg.type === "content_block_delta" && msg.delta?.text) {
         process.stdout.write(msg.delta.text);
+        output += msg.delta.text;
       } else if (msg.type === "result" && msg.result?.text) {
         process.stdout.write(msg.result.text);
+        output += msg.result.text;
       }
     } catch {
       // skip
@@ -51,5 +61,5 @@ export async function spawnClaude(input: string): Promise<number> {
   }
 
   await proc.exited;
-  return proc.exitCode ?? 1;
+  return { exitCode: proc.exitCode ?? 1, output };
 }
