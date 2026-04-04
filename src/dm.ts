@@ -61,4 +61,5 @@ if (!res.ok) {
   process.exit(1);
 }
 
-console.log(`DM sent to ${targetId}`);
+process.stdout.write(`◀ [DM to ${targetId}] ${message}\n`);
+console.error(`DM sent to ${targetId}`);
