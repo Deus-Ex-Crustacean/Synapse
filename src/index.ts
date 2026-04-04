@@ -22,6 +22,30 @@ const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
 const STATUS_PATH = join(process.cwd(), "synapse.status");
+const CONVERSATION_PATH = join(process.cwd(), "conversation.json");
+const WORKSPACE_NAME = process.env.WORKSPACE_NAME || "Synapse";
+
+interface ConversationEntry {
+  timestamp: number;
+  type: "prompt" | "dm" | "response" | "system";
+  from: string;
+  message: string;
+}
+
+let conversation: ConversationEntry[] = [];
+
+function loadConversation() {
+  try {
+    conversation = JSON.parse(readFileSync(CONVERSATION_PATH, "utf-8"));
+  } catch {
+    conversation = [];
+  }
+}
+
+function addConversationEntry(entry: ConversationEntry) {
+  conversation.push(entry);
+  try { writeFileSync(CONVERSATION_PATH, JSON.stringify(conversation, null, 2) + "\n"); } catch {}
+}
 
 // States: "connecting" | "idle" | "running" | "error"
 function setStatus(status: string) {
@@ -102,6 +126,9 @@ async function processBatch() {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     if (result.exitCode === 0) {
       log(`Claude finished successfully in ${elapsed}s`);
+      if (result.output.trim()) {
+        addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
+      }
       break;
     }
 
@@ -142,17 +169,30 @@ function printEventMessage(event: Event) {
   process.stdout.write(`▶ ${payload.fromName}: ${payload.message}\n`);
 }
 
+function logConversationEvent(event: Event) {
+  const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
+  if (!payload?.message) return;
+  if (event.type.startsWith("prompt.")) {
+    addConversationEntry({ timestamp: event.timestamp, type: "prompt", from: "user", message: payload.message as string });
+  } else if (event.type.startsWith("dm.")) {
+    addConversationEntry({ timestamp: event.timestamp, type: "dm", from: (payload.fromName as string) || "unknown", message: payload.message as string });
+  }
+}
+
 function onEvent(event: Event) {
   log(`Event received: ${event.type} (${event.id})`);
   printEventMessage(event);
+  logConversationEvent(event);
   batch.push(event);
   scheduleProcess();
 }
 
 async function start() {
+  loadConversation();
   const previousStatus = readStatus();
   if (previousStatus === "running") {
     log("Previous instance was killed mid-execution — resuming Claude with --continue");
+    addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Resuming interrupted execution" });
     setStatus("running");
     let recentLog = "";
     try {
@@ -165,8 +205,12 @@ async function start() {
     const result = await spawnClaude(resumePrompt);
     if (result.exitCode === 0) {
       log("Resume completed successfully");
+      if (result.output.trim()) {
+        addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
+      }
     } else {
       log(`Resume exited with code ${result.exitCode}`);
+      addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Resume failed with exit code ${result.exitCode}` });
     }
     setStatus("idle");
   }
@@ -174,6 +218,7 @@ async function start() {
   const lastTimestamp = readTimestamp();
   lastProcessedTimestamp = lastTimestamp;
   setStatus("connecting");
+  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Starting up and connecting to Cortex" });
   log("Authenticating with Ego...");
   jwt = await authenticate();
   log("Authenticated. Connecting to Cortex SSE...");
