@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync } from "fs";
+import { appendFileSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
@@ -14,6 +14,10 @@ const STATUS_PATH = join(process.cwd(), "synapse.status");
 // States: "connecting" | "idle" | "running" | "error"
 function setStatus(status: string) {
   try { writeFileSync(STATUS_PATH, status); } catch {}
+}
+
+function readStatus(): string {
+  try { return readFileSync(STATUS_PATH, "utf-8").trim(); } catch { return ""; }
 }
 
 function log(...args: unknown[]) {
@@ -138,6 +142,19 @@ function onEvent(event: Event) {
 }
 
 async function start() {
+  const previousStatus = readStatus();
+  if (previousStatus === "running") {
+    log("Previous instance was killed mid-execution — resuming Claude with --continue");
+    setStatus("running");
+    const result = await spawnClaude("");
+    if (result.exitCode === 0) {
+      log("Resume completed successfully");
+    } else {
+      log(`Resume exited with code ${result.exitCode}`);
+    }
+    setStatus("idle");
+  }
+
   const lastTimestamp = readTimestamp();
   lastProcessedTimestamp = lastTimestamp;
   setStatus("connecting");
