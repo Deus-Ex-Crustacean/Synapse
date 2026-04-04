@@ -1,5 +1,5 @@
 export async function spawnClaude(input: string): Promise<number> {
-  const proc = Bun.spawn(["claude", "--continue", "--dangerously-skip-permissions"], {
+  const proc = Bun.spawn(["claude", "-p", "--dangerously-skip-permissions"], {
     cwd: process.cwd(),
     stdin: new Blob([input]),
     stdout: "inherit",
