@@ -11,8 +11,8 @@ const MAX_RETRY_DELAY_MS = 60_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
 
 function log(...args: unknown[]) {
-  const line = `[${new Date().toISOString()}] ${args.map(String).join(" ")}`;
-  console.log(line);
+  const line = `[synapse] [${new Date().toISOString()}] ${args.map(String).join(" ")}`;
+  console.error(line);
   appendFileSync(LOG_PATH, line + "\n");
 }
 

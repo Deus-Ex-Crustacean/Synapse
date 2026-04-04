@@ -74,7 +74,7 @@ export async function openEventStream(opts: StreamOptions): Promise<void> {
         const event = JSON.parse(data);
         onEvent(event);
       } catch {
-        console.error("Failed to parse SSE event:", data);
+        console.error("[synapse] Failed to parse SSE event:", data);
       }
     }
   }
