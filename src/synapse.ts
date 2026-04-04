@@ -17,6 +17,7 @@ interface StreamOptions {
   since: number;
   onEvent: (event: Event) => void;
   onAuthError: () => void;
+  onConnected?: () => void;
 }
 
 export async function publishEvent(jwt: string, event: { type: string; [key: string]: unknown }): Promise<void> {
@@ -32,7 +33,7 @@ export async function publishEvent(jwt: string, event: { type: string; [key: str
 }
 
 export async function openEventStream(opts: StreamOptions): Promise<void> {
-  const { jwt, eventTypes, since, onEvent, onAuthError } = opts;
+  const { jwt, eventTypes, since, onEvent, onAuthError, onConnected } = opts;
 
   const subscribeRes = await fetch(`${CORTEX_URL}/subscribe`, {
     method: "POST",
@@ -65,6 +66,8 @@ export async function openEventStream(opts: StreamOptions): Promise<void> {
   if (!res.ok) {
     throw new Error(`SSE connect failed: ${res.status} ${await res.text()}`);
   }
+
+  if (onConnected) onConnected();
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();

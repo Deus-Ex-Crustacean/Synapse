@@ -1,4 +1,4 @@
-import { appendFileSync } from "fs";
+import { appendFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
@@ -9,6 +9,12 @@ const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
+const STATUS_PATH = join(process.cwd(), "synapse.status");
+
+// States: "connecting" | "idle" | "running" | "error"
+function setStatus(status: string) {
+  try { writeFileSync(STATUS_PATH, status); } catch {}
+}
 
 function log(...args: unknown[]) {
   const line = `[synapse] [${new Date().toISOString()}] ${args.map(String).join(" ")}`;
@@ -34,6 +40,7 @@ async function processBatch() {
   if (batch.length === 0 || claudeRunning) return;
 
   claudeRunning = true;
+  setStatus("running");
   const currentBatch = batch;
   batch = [];
   const eventTypes = currentBatch.map(e => e.type).join(", ");
@@ -64,6 +71,7 @@ async function processBatch() {
   }
 
   claudeRunning = false;
+  setStatus("idle");
 
   if (batch.length > 0) {
     await processBatch();
@@ -88,6 +96,7 @@ function onEvent(event: Event) {
 async function start() {
   const lastTimestamp = readTimestamp();
   lastProcessedTimestamp = lastTimestamp;
+  setStatus("connecting");
   log("Authenticating with Ego...");
   jwt = await authenticate();
   log("Authenticated. Connecting to Cortex SSE...");
@@ -96,12 +105,14 @@ async function start() {
 
   async function connect() {
     try {
+      setStatus("connecting");
       reconnectDelay = 1000;
       await openEventStream({
         jwt,
         eventTypes: EVENT_TYPES,
         since: lastProcessedTimestamp,
         onEvent,
+        onConnected: () => setStatus("idle"),
         onAuthError: async () => {
           log("Got 401 — refreshing token and reconnecting");
           jwt = await refreshToken();
@@ -109,6 +120,7 @@ async function start() {
         },
       });
     } catch (err) {
+      setStatus("error");
       log("SSE connection error:", err);
       log(`Reconnecting in ${reconnectDelay}ms...`);
       setTimeout(connect, reconnectDelay);
