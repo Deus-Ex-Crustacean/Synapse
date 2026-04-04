@@ -18,6 +18,24 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
   const decoder = new TextDecoder();
   let buffer = "";
   let output = "";
+  let lineBuffer = "";
+
+  function emitText(text: string) {
+    output += text;
+    lineBuffer += text;
+    const lines = lineBuffer.split("\n");
+    lineBuffer = lines.pop()!;
+    for (const line of lines) {
+      process.stdout.write(`◀ ${line}\n`);
+    }
+  }
+
+  function flush() {
+    if (lineBuffer) {
+      process.stdout.write(`◀ ${lineBuffer}\n`);
+      lineBuffer = "";
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
@@ -32,11 +50,9 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
       try {
         const msg = JSON.parse(line);
         if (msg.type === "content_block_delta" && msg.delta?.text) {
-          process.stdout.write(msg.delta.text);
-          output += msg.delta.text;
+          emitText(msg.delta.text);
         } else if (msg.type === "result" && msg.result?.text) {
-          process.stdout.write(msg.result.text);
-          output += msg.result.text;
+          emitText(msg.result.text);
         }
       } catch {
         // skip unparseable lines
@@ -49,16 +65,16 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
     try {
       const msg = JSON.parse(buffer);
       if (msg.type === "content_block_delta" && msg.delta?.text) {
-        process.stdout.write(msg.delta.text);
-        output += msg.delta.text;
+        emitText(msg.delta.text);
       } else if (msg.type === "result" && msg.result?.text) {
-        process.stdout.write(msg.result.text);
-        output += msg.result.text;
+        emitText(msg.result.text);
       }
     } catch {
       // skip
     }
   }
+
+  flush();
 
   await proc.exited;
   return { exitCode: proc.exitCode ?? 1, output };
