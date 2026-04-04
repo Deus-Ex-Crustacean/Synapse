@@ -5,7 +5,7 @@ export interface ClaudeResult {
 
 export async function spawnClaude(input: string): Promise<ClaudeResult> {
   const proc = Bun.spawn(
-    ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--output-format", "stream-json"],
+    ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"],
     {
       cwd: process.cwd(),
       stdin: new Blob([input]),
@@ -49,10 +49,14 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
       if (!line.trim()) continue;
       try {
         const msg = JSON.parse(line);
-        if (msg.type === "content_block_delta" && msg.delta?.text) {
+        if (msg.type === "assistant" && msg.message?.content) {
+          for (const block of msg.message.content) {
+            if (block.type === "text" && block.text) emitText(block.text);
+          }
+        } else if (msg.type === "content_block_delta" && msg.delta?.text) {
           emitText(msg.delta.text);
-        } else if (msg.type === "result" && msg.result?.text) {
-          emitText(msg.result.text);
+        } else if (msg.type === "result" && msg.result) {
+          // result.result is the final text — only emit if we haven't already
         }
       } catch {
         // skip unparseable lines
@@ -64,10 +68,14 @@ export async function spawnClaude(input: string): Promise<ClaudeResult> {
   if (buffer.trim()) {
     try {
       const msg = JSON.parse(buffer);
-      if (msg.type === "content_block_delta" && msg.delta?.text) {
+      if (msg.type === "assistant" && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === "text" && block.text) emitText(block.text);
+        }
+      } else if (msg.type === "content_block_delta" && msg.delta?.text) {
         emitText(msg.delta.text);
-      } else if (msg.type === "result" && msg.result?.text) {
-        emitText(msg.result.text);
+      } else if (msg.type === "result" && msg.result) {
+        // final result — text already emitted via assistant messages
       }
     } catch {
       // skip
