@@ -146,7 +146,15 @@ async function start() {
   if (previousStatus === "running") {
     log("Previous instance was killed mid-execution — resuming Claude with --continue");
     setStatus("running");
-    const result = await spawnClaude("Continue from where you left off.");
+    let recentLog = "";
+    try {
+      const logContent = readFileSync(LOG_PATH, "utf-8");
+      recentLog = logContent.split("\n").slice(-100).join("\n");
+    } catch {}
+    const resumePrompt = recentLog
+      ? `Continue from where you left off.\n\nHere is the recent log from your previous execution:\n${recentLog}`
+      : "Continue from where you left off.";
+    const result = await spawnClaude(resumePrompt);
     if (result.exitCode === 0) {
       log("Resume completed successfully");
     } else {
