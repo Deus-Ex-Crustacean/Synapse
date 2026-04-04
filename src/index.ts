@@ -36,15 +36,22 @@ async function processBatch() {
   claudeRunning = true;
   const currentBatch = batch;
   batch = [];
-  log(`Processing batch of ${currentBatch.length} event(s)`);
+  const eventTypes = currentBatch.map(e => e.type).join(", ");
+  log(`Processing batch of ${currentBatch.length} event(s): ${eventTypes}`);
 
   const payload = JSON.stringify({ events: currentBatch });
   let retryDelay = 1000;
 
   while (true) {
+    log("Spawning Claude...");
+    const startTime = Date.now();
     const exitCode = await spawnClaude(payload);
-    if (exitCode === 0) break;
-    log(`Claude exited with code ${exitCode} — retrying in ${retryDelay}ms`);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    if (exitCode === 0) {
+      log(`Claude finished successfully in ${elapsed}s`);
+      break;
+    }
+    log(`Claude exited with code ${exitCode} after ${elapsed}s — retrying in ${retryDelay}ms`);
     await new Promise((r) => setTimeout(r, retryDelay));
     retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
   }
