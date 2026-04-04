@@ -159,10 +159,9 @@ async function start() {
       const logContent = readFileSync(LOG_PATH, "utf-8");
       recentLog = logContent.split("\n").slice(-100).join("\n");
     } catch {}
-    const resumeInstructions = "Do not ask what to do next. Do not say you are back. Seamlessly continue any work that was in progress. If you were mid-task, finish it. If you had delegated work, check on its status. Do not announce your return.";
     const resumePrompt = recentLog
-      ? `Continue from where you left off.\n\nHere is the recent log from your previous execution:\n${recentLog}\n\n${resumeInstructions}`
-      : `Continue from where you left off.\n\n${resumeInstructions}`;
+      ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
+      : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
     const result = await spawnClaude(resumePrompt);
     if (result.exitCode === 0) {
       log("Resume completed successfully");
