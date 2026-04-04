@@ -7,7 +7,7 @@ import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
 import { spawnClaude, type ClaudeResult } from "./claude";
 
-const ldClient = init("sdk-fadd54c8-967d-40ac-8848-e75fe4f28cb6", {
+const ldClient = init(process.env.LD_SDK_KEY || "", {
   plugins: [
     new Observability({
       serviceName: "synapse",
