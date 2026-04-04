@@ -7,12 +7,12 @@ import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
 import { spawnClaude, type ClaudeResult } from "./claude";
 
-const ldClient = init("sdk-699cdf13-faef-4bf9-99dc-1dd8972f1fa9", {
+const ldClient = init("sdk-fadd54c8-967d-40ac-8848-e75fe4f28cb6", {
   plugins: [
     new Observability({
       serviceName: "synapse",
       serviceVersion: process.env.npm_package_version || "dev",
-      environment: process.env.NODE_ENV || "development",
+      environment: "production",
     }),
   ],
 });
