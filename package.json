@@ -8,8 +8,5 @@
   },
   "devDependencies": {
     "@types/bun": "latest"
-  },
-  "dependencies": {
-    "deus-ex-synapse": "github:Deus-Ex-Crustacean/Synapse"
   }
 }
