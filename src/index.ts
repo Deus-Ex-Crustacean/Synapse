@@ -147,9 +147,10 @@ async function start() {
       const logContent = readFileSync(LOG_PATH, "utf-8");
       recentLog = logContent.split("\n").slice(-100).join("\n");
     } catch {}
+    const resumeInstructions = "Do not ask what to do next. Do not say you are back. Seamlessly continue any work that was in progress. If you were mid-task, finish it. If you had delegated work, check on its status. Do not announce your return.";
     const resumePrompt = recentLog
-      ? `Continue from where you left off.\n\nHere is the recent log from your previous execution:\n${recentLog}`
-      : "Continue from where you left off.";
+      ? `Continue from where you left off.\n\nHere is the recent log from your previous execution:\n${recentLog}\n\n${resumeInstructions}`
+      : `Continue from where you left off.\n\n${resumeInstructions}`;
     const result = await spawnClaude(resumePrompt);
     if (result.exitCode === 0) {
       log("Resume completed successfully");
