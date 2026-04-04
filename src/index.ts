@@ -124,14 +124,10 @@ function scheduleProcess() {
 }
 
 function printEventMessage(event: Event) {
+  if (!event.type.startsWith("dm.")) return;
   const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
-  if (!payload?.message) return;
-
-  if (payload.fromName) {
-    process.stdout.write(`▶ ${payload.fromName}: ${payload.message}\n`);
-  } else if (event.type.startsWith("prompt.")) {
-    process.stdout.write(`Prompt: ${payload.message}\n`);
-  }
+  if (!payload?.message || !payload?.fromName) return;
+  process.stdout.write(`▶ ${payload.fromName}: ${payload.message}\n`);
 }
 
 function onEvent(event: Event) {
