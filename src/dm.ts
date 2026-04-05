@@ -63,3 +63,17 @@ if (!res.ok) {
 
 process.stdout.write(`◀ [DM to ${targetId}] ${message}\n`);
 console.error(`DM sent to ${targetId}`);
+
+// Write to conversation.json
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
+const CONVERSATION_PATH = join(process.cwd(), "conversation.json");
+let conversation: unknown[] = [];
+try { conversation = JSON.parse(readFileSync(CONVERSATION_PATH, "utf-8")); } catch {}
+conversation.push({
+  timestamp: Date.now(),
+  type: "dm",
+  from: WORKSPACE_NAME || EGO_CLIENT_ID,
+  message: `To ${targetId}: ${message}`,
+});
+try { writeFileSync(CONVERSATION_PATH, JSON.stringify(conversation, null, 2) + "\n"); } catch {}

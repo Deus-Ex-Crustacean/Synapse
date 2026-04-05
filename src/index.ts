@@ -203,8 +203,6 @@ async function handleEmergency(event: Event) {
     currentClaudeHandle = null;
   }
 
-  // Clear batch
-  batch = [];
   if (settlingTimer) { clearTimeout(settlingTimer); settlingTimer = null; }
 
   // Get recent log context
