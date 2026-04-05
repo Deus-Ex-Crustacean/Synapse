@@ -15,8 +15,20 @@ if (!CORTEX_URL || !EGO_URL || !EGO_CLIENT_ID || !EGO_CLIENT_SECRET) {
   process.exit(1);
 }
 
+const WORKSPACE_NAMES: Record<string, string> = {
+  "6759de93-0863-4dfb-b1aa-eef4c668698a": "Ego",
+  "55bba2ea-c3cf-4119-bd34-bc30e639abef": "Cortex",
+  "d8e5d32c-206b-4a40-9019-d08aadcf5606": "Hive",
+  "c35f3be1-bffe-499b-8466-a76cedcb9e72": "Synapse",
+  "893ad240-5441-46c8-8dc3-3afa195f1130": "Sensory",
+  "fcfd9446-ca12-4758-aaea-4179a6ad33b1": "Mind",
+  "0dd15e8b-e4c5-4288-bea1-5a9b64c92c39": "Deus-Ex-Crust",
+  "995f7854-cb32-40d7-89e2-94e9cca974b4": "LDExpert",
+};
+
 const targetId = process.argv[2];
 const message = process.argv.slice(3).join(" ");
+const targetName = WORKSPACE_NAMES[targetId] || targetId;
 
 if (!targetId || !message) {
   console.error("Usage: dm <targetWorkspaceId> <message>");
@@ -74,6 +86,6 @@ conversation.push({
   timestamp: Date.now(),
   type: "dm",
   from: WORKSPACE_NAME || EGO_CLIENT_ID,
-  message: `To ${targetId}: ${message}`,
+  message: `To ${targetName}: ${message}`,
 });
 try { writeFileSync(CONVERSATION_PATH, JSON.stringify(conversation, null, 2) + "\n"); } catch {}

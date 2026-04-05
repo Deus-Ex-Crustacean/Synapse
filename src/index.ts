@@ -24,6 +24,7 @@ const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const MIN_RUN_INTERVAL_MS = parseInt(process.env.MIN_RUN_INTERVAL_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
+const MAX_RATE_LIMIT_DELAY_MS = 1_200_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
 const STATUS_PATH = join(process.cwd(), "synapse.status");
 const CONVERSATION_PATH = join(process.cwd(), "conversation.json");
@@ -124,7 +125,8 @@ async function processBatch() {
   batch = [];
   const eventTypes = currentBatch.map(e => e.type).join(", ");
   log(`Processing batch of ${currentBatch.length} event(s): ${eventTypes}`);
-  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Processing ${currentBatch.length} event(s): ${eventTypes}` });
+  const statusMsg = currentBatch.length === 1 ? "Thinking..." : `Processing ${currentBatch.length} messages...`;
+  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: statusMsg });
 
   const payload = JSON.stringify({ events: currentBatch });
   let retryDelay = 1000;
@@ -146,13 +148,15 @@ async function processBatch() {
       break;
     }
 
-    const waitMs = parseRateLimitWait(result.output) ?? retryDelay;
+    const rateLimitWait = parseRateLimitWait(result.output);
+    const waitMs = rateLimitWait ?? retryDelay;
+    const maxDelay = rateLimitWait ? MAX_RATE_LIMIT_DELAY_MS : MAX_RETRY_DELAY_MS;
     log(`Claude exited with code ${result.exitCode} after ${elapsed}s — retrying in ${Math.round(waitMs / 1000)}s`);
     await new Promise<void>((r) => {
       backoffResolve = r;
       setTimeout(() => { backoffResolve = null; r(); }, waitMs);
     });
-    retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
+    retryDelay = Math.min(retryDelay * 2, maxDelay);
   }
 
   // Only persist timestamp after successful processing
@@ -273,31 +277,39 @@ async function start() {
   loadConversation();
   const previousStatus = readStatus();
   if (previousStatus === "running") {
-    log("Previous instance was killed mid-execution — resuming Claude with --continue");
+    log("Previous instance was killed mid-execution — resuming Claude in background");
     addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Resuming interrupted execution" });
-    setStatus("running");
-    let recentLog = "";
-    try {
-      const logContent = readFileSync(LOG_PATH, "utf-8");
-      recentLog = logContent.split("\n").slice(-100).join("\n");
-    } catch {}
-    const resumePrompt = recentLog
-      ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
-      : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
-    const handle = spawnClaude(resumePrompt);
-    currentClaudeHandle = handle;
-    const result = await handle.result;
-    currentClaudeHandle = null;
-    if (result.exitCode === 0) {
-      log("Resume completed successfully");
-      if (result.output.trim()) {
-        addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
+    // Resume in background — don't block SSE connection
+    (async () => {
+      setStatus("running");
+      claudeRunning = true;
+      let recentLog = "";
+      try {
+        const logContent = readFileSync(LOG_PATH, "utf-8");
+        recentLog = logContent.split("\n").slice(-100).join("\n");
+      } catch {}
+      const resumePrompt = recentLog
+        ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
+        : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
+      const handle = spawnClaude(resumePrompt);
+      currentClaudeHandle = handle;
+      const result = await handle.result;
+      currentClaudeHandle = null;
+      if (result.exitCode === 0) {
+        log("Resume completed successfully");
+        if (result.output.trim()) {
+          addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
+        }
+      } else {
+        log(`Resume exited with code ${result.exitCode}`);
+        addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Resume failed with exit code ${result.exitCode}` });
       }
-    } else {
-      log(`Resume exited with code ${result.exitCode}`);
-      addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Resume failed with exit code ${result.exitCode}` });
-    }
-    setStatus("idle");
+      claudeRunning = false;
+      setStatus("idle");
+      if (batch.length > 0) {
+        await processBatch();
+      }
+    })();
   }
 
   const lastTimestamp = readTimestamp();
