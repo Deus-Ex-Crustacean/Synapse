@@ -304,8 +304,10 @@ async function start() {
         log(`Resume exited with code ${result.exitCode}`);
         addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Resume failed with exit code ${result.exitCode}` });
       }
+      lastRunEndTime = Date.now();
       claudeRunning = false;
       setStatus("idle");
+      log(`Resume done. ${batch.length} event(s) queued during resume.`);
       if (batch.length > 0) {
         await processBatch();
       }
