@@ -13,9 +13,12 @@ const ldClient = init(process.env.LD_SDK_KEY || "", {
       serviceName: "synapse",
       serviceVersion: process.env.npm_package_version || "dev",
       environment: "production",
+      consoleMethodsToRecord: ["warn", "error"],
     }),
   ],
 });
+ldClient.on("ready", () => log("LaunchDarkly client ready"));
+ldClient.on("failed", (err) => log("LaunchDarkly client failed:", err));
 
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
