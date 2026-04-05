@@ -8,12 +8,13 @@ export interface ClaudeHandle {
   kill(): void;
 }
 
-export function spawnClaude(input: string): ClaudeHandle {
-  const proc = Bun.spawn(
-    ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json",
-      "--model", process.env.CLAUDE_MODEL || "haiku",
-      "--effort", process.env.CLAUDE_EFFORT || "low"],
-    {
+export function spawnClaude(input: string, useContinue = true): ClaudeHandle {
+  const args = ["claude", "-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json",
+    "--model", process.env.CLAUDE_MODEL || "haiku",
+    "--effort", process.env.CLAUDE_EFFORT || "low"];
+  if (useContinue) args.splice(2, 0, "--continue");
+
+  const proc = Bun.spawn(args, {
       cwd: process.cwd(),
       stdin: new Blob([input]),
       stdout: "pipe",

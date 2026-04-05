@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, writeFileSync } from "fs";
+import { appendFileSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { init } from "@launchdarkly/node-server-sdk";
 import { Observability } from "@launchdarkly/observability-node";
@@ -22,6 +22,7 @@ ldClient.on("failed", (err) => log("LaunchDarkly client failed:", err));
 
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
 const MIN_RUN_INTERVAL_MS = parseInt(process.env.MIN_RUN_INTERVAL_MS || "0", 10);
+const SESSION_MAX_SIZE_MB = parseFloat(process.env.SESSION_MAX_SIZE_MB || "5");
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
 const MAX_RATE_LIMIT_DELAY_MS = 1_200_000;
@@ -65,6 +66,25 @@ function log(...args: unknown[]) {
   const line = `[synapse] [${new Date().toISOString()}] ${args.map(String).join(" ")}`;
   console.error(line);
   appendFileSync(LOG_PATH, line + "\n");
+}
+
+function isSessionOversized(): boolean {
+  if (SESSION_MAX_SIZE_MB <= 0) return false;
+  try {
+    const sessionPath = join(process.env.HOME || "", ".claude", "projects",
+      process.cwd().replaceAll("/", "-").replace(/^-/, ""),
+      "session.jsonl");
+    const { size } = statSync(sessionPath);
+    return size > SESSION_MAX_SIZE_MB * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+
+function buildFallbackPrompt(eventPayload: string): string {
+  const recentEntries = conversation.slice(-30);
+  const history = recentEntries.map(e => `[${e.type}] ${e.from}: ${e.message}`).join("\n");
+  return `Session context (last 30 conversation entries):\n${history}\n\nCurrent events:\n${eventPayload}`;
 }
 
 function parseRateLimitWait(output: string): number | null {
@@ -134,7 +154,10 @@ async function processBatch() {
   while (true) {
     log("Spawning Claude...");
     const startTime = Date.now();
-    const handle = spawnClaude(payload);
+    const oversized = isSessionOversized();
+    if (oversized) log(`Session exceeds ${SESSION_MAX_SIZE_MB}MB — spawning without --continue`);
+    const spawnInput = oversized ? buildFallbackPrompt(payload) : payload;
+    const handle = spawnClaude(spawnInput, !oversized);
     currentClaudeHandle = handle;
     const result = await handle.result;
     currentClaudeHandle = null;
@@ -317,7 +340,7 @@ async function start() {
   const lastTimestamp = readTimestamp();
   lastProcessedTimestamp = lastTimestamp;
   setStatus("connecting");
-  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Starting up and connecting to Cortex" });
+
   log("Authenticating with Ego...");
   jwt = await authenticate();
   log("Authenticated. Connecting to Cortex SSE...");
@@ -340,6 +363,9 @@ async function start() {
           connect();
         },
       });
+      // Stream ended cleanly (server closed connection) — reconnect
+      log("SSE stream closed — reconnecting in 1s...");
+      setTimeout(connect, 1000);
     } catch (err) {
       setStatus("error");
       log("SSE connection error:", err);
