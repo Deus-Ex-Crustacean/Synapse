@@ -223,14 +223,13 @@ async function handleEmergency(event: Event) {
 
   if (settlingTimer) { clearTimeout(settlingTimer); settlingTimer = null; }
 
-  // Get recent log context
-  let recentLog = "";
-  try {
-    const logContent = readFileSync(LOG_PATH, "utf-8");
-    recentLog = logContent.split("\n").slice(-50).join("\n");
-  } catch {}
+  // Get recent conversation as context
+  const recentEntries = conversation.slice(-20).map(e => {
+    const prefix = e.type === "prompt" ? "PROMPT" : e.type === "dm" ? `DM from ${e.from}` : e.type === "response" ? `YOU replied` : "SYSTEM";
+    return `[${prefix}] ${e.message}`;
+  }).join("\n");
 
-  const emergencyPrompt = `EMERGENCY INTERRUPT from user: ${message}\n\nRecent log:\n${recentLog}\n\nDrop what you were doing and address this emergency immediately.`;
+  const emergencyPrompt = `EMERGENCY INTERRUPT from user: ${message}\n\nRecent conversation:\n${recentEntries}\n\nDrop what you were doing and address this emergency immediately.`;
 
   claudeRunning = true;
   setStatus("running");
@@ -283,14 +282,14 @@ async function start() {
     (async () => {
       setStatus("running");
       claudeRunning = true;
-      let recentLog = "";
-      try {
-        const logContent = readFileSync(LOG_PATH, "utf-8");
-        recentLog = logContent.split("\n").slice(-100).join("\n");
-      } catch {}
-      const resumePrompt = recentLog
-        ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
-        : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
+      // Get recent conversation entries as resume context
+      const recentEntries = conversation.slice(-20).map(e => {
+        const prefix = e.type === "prompt" ? "PROMPT" : e.type === "dm" ? `DM from ${e.from}` : e.type === "response" ? `YOU replied` : "SYSTEM";
+        return `[${prefix}] ${e.message}`;
+      }).join("\n");
+      const resumePrompt = recentEntries
+        ? `You were interrupted mid-execution. Here is your recent conversation:\n\n${recentEntries}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the conversation above, identify what task you were working on, and CONTINUE doing it. Resume the actual work.`
+        : "You were interrupted mid-execution. IMPORTANT: Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
       addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Thinking..." });
       const handle = spawnClaude(resumePrompt);
       currentClaudeHandle = handle;
