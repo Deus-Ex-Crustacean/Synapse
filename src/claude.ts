@@ -10,7 +10,9 @@ export interface ClaudeHandle {
 
 export function spawnClaude(input: string): ClaudeHandle {
   const proc = Bun.spawn(
-    ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--model", "sonnet", "--effort", "low"],
+    ["claude", "-p", "--continue", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json",
+      "--model", process.env.CLAUDE_MODEL || "haiku",
+      "--effort", process.env.CLAUDE_EFFORT || "low"],
     {
       cwd: process.cwd(),
       stdin: new Blob([input]),
