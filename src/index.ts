@@ -291,6 +291,7 @@ async function start() {
       const resumePrompt = recentLog
         ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
         : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
+      addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Thinking..." });
       const handle = spawnClaude(resumePrompt);
       currentClaudeHandle = handle;
       const result = await handle.result;
