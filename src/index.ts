@@ -21,6 +21,7 @@ ldClient.on("ready", () => log("LaunchDarkly client ready"));
 ldClient.on("failed", (err) => log("LaunchDarkly client failed:", err));
 
 const SETTLING_DELAY_MS = parseInt(process.env.SETTLING_DELAY_MS || "0", 10);
+const MIN_RUN_INTERVAL_MS = parseInt(process.env.MIN_RUN_INTERVAL_MS || "0", 10);
 const EVENT_TYPES = (process.env.EVENT_TYPES || "").split(",").filter(Boolean);
 const MAX_RETRY_DELAY_MS = 60_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
@@ -109,8 +110,10 @@ let batch: Event[] = [];
 let settlingTimer: ReturnType<typeof setTimeout> | null = null;
 let claudeRunning = false;
 let currentClaudeHandle: ClaudeHandle | null = null;
+let backoffResolve: (() => void) | null = null;
 let jwt: string;
 let lastProcessedTimestamp = 0;
+let lastRunEndTime = 0;
 
 async function processBatch() {
   if (batch.length === 0 || claudeRunning) return;
@@ -145,7 +148,10 @@ async function processBatch() {
 
     const waitMs = parseRateLimitWait(result.output) ?? retryDelay;
     log(`Claude exited with code ${result.exitCode} after ${elapsed}s — retrying in ${Math.round(waitMs / 1000)}s`);
-    await new Promise((r) => setTimeout(r, waitMs));
+    await new Promise<void>((r) => {
+      backoffResolve = r;
+      setTimeout(() => { backoffResolve = null; r(); }, waitMs);
+    });
     retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
   }
 
@@ -156,10 +162,18 @@ async function processBatch() {
     writeTimestamp(maxTimestamp);
   }
 
+  lastRunEndTime = Date.now();
   claudeRunning = false;
   setStatus("idle");
 
   if (batch.length > 0) {
+    if (MIN_RUN_INTERVAL_MS > 0) {
+      const sinceLast = Date.now() - lastRunEndTime;
+      const remaining = MIN_RUN_INTERVAL_MS - sinceLast;
+      if (remaining > 0) {
+        await new Promise((r) => setTimeout(r, remaining));
+      }
+    }
     await processBatch();
   }
 }
@@ -244,6 +258,14 @@ function onEvent(event: Event) {
   printEventMessage(event);
   logConversationEvent(event);
   batch.push(event);
+
+  // Cancel backoff timer if we're waiting to retry — new event means fresh context
+  if (backoffResolve) {
+    log("New event arrived — cancelling backoff and retrying immediately");
+    backoffResolve();
+    backoffResolve = null;
+  }
+
   scheduleProcess();
 }
 
