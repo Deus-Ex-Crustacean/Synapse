@@ -5,7 +5,7 @@ import { Observability } from "@launchdarkly/observability-node";
 import { authenticate, refreshToken } from "./ego";
 import { openEventStream } from "./synapse";
 import { readTimestamp, writeTimestamp } from "./persistence";
-import { spawnClaude, type ClaudeResult } from "./claude";
+import { spawnClaude, type ClaudeResult, type ClaudeHandle } from "./claude";
 
 const ldClient = init(process.env.LD_SDK_KEY || "", {
   plugins: [
@@ -103,9 +103,12 @@ interface Event {
   payload: Record<string, unknown>;
 }
 
+const WORKSPACE_ID = process.env.WORKSPACE_ID || "";
+
 let batch: Event[] = [];
 let settlingTimer: ReturnType<typeof setTimeout> | null = null;
 let claudeRunning = false;
+let currentClaudeHandle: ClaudeHandle | null = null;
 let jwt: string;
 let lastProcessedTimestamp = 0;
 
@@ -126,7 +129,10 @@ async function processBatch() {
   while (true) {
     log("Spawning Claude...");
     const startTime = Date.now();
-    const result = await spawnClaude(payload);
+    const handle = spawnClaude(payload);
+    currentClaudeHandle = handle;
+    const result = await handle.result;
+    currentClaudeHandle = null;
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     if (result.exitCode === 0) {
       log(`Claude finished successfully in ${elapsed}s`);
@@ -184,8 +190,59 @@ function logConversationEvent(event: Event) {
   }
 }
 
+async function handleEmergency(event: Event) {
+  const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
+  const message = (payload?.message as string) || "Unknown emergency";
+  log(`EMERGENCY INTERRUPT: ${message}`);
+  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Emergency: ${message}` });
+
+  // Kill current Claude process if running
+  if (currentClaudeHandle) {
+    log("Killing current Claude process for emergency");
+    currentClaudeHandle.kill();
+    currentClaudeHandle = null;
+  }
+
+  // Clear batch
+  batch = [];
+  if (settlingTimer) { clearTimeout(settlingTimer); settlingTimer = null; }
+
+  // Get recent log context
+  let recentLog = "";
+  try {
+    const logContent = readFileSync(LOG_PATH, "utf-8");
+    recentLog = logContent.split("\n").slice(-50).join("\n");
+  } catch {}
+
+  const emergencyPrompt = `EMERGENCY INTERRUPT from user: ${message}\n\nRecent log:\n${recentLog}\n\nDrop what you were doing and address this emergency immediately.`;
+
+  claudeRunning = true;
+  setStatus("running");
+  const handle = spawnClaude(emergencyPrompt);
+  currentClaudeHandle = handle;
+  const result = await handle.result;
+  currentClaudeHandle = null;
+
+  if (result.output.trim()) {
+    addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
+  }
+
+  claudeRunning = false;
+  setStatus("idle");
+
+  if (batch.length > 0) {
+    await processBatch();
+  }
+}
+
 function onEvent(event: Event) {
   log(`Event received: ${event.type} (${event.id})`);
+
+  if (event.type.startsWith("emergency.")) {
+    handleEmergency(event);
+    return;
+  }
+
   printEventMessage(event);
   logConversationEvent(event);
   batch.push(event);
@@ -207,7 +264,10 @@ async function start() {
     const resumePrompt = recentLog
       ? `You were interrupted mid-execution. Here is your recent log:\n\n${recentLog}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the log above, identify what task you were working on, and CONTINUE doing it. If you were sending DMs, send them. If you were writing code, write it. If you were waiting on something, check on it. Resume the actual work.`
       : "You were interrupted mid-execution. IMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
-    const result = await spawnClaude(resumePrompt);
+    const handle = spawnClaude(resumePrompt);
+    currentClaudeHandle = handle;
+    const result = await handle.result;
+    currentClaudeHandle = null;
     if (result.exitCode === 0) {
       log("Resume completed successfully");
       if (result.output.trim()) {
