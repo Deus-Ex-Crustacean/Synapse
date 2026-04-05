@@ -118,6 +118,7 @@ async function processBatch() {
   batch = [];
   const eventTypes = currentBatch.map(e => e.type).join(", ");
   log(`Processing batch of ${currentBatch.length} event(s): ${eventTypes}`);
+  addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Processing ${currentBatch.length} event(s): ${eventTypes}` });
 
   const payload = JSON.stringify({ events: currentBatch });
   let retryDelay = 1000;
@@ -132,6 +133,7 @@ async function processBatch() {
       if (result.output.trim()) {
         addConversationEntry({ timestamp: Date.now(), type: "response", from: WORKSPACE_NAME, message: result.output.trim() });
       }
+      addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: `Completed in ${elapsed}s` });
       break;
     }
 
