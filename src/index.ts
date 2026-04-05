@@ -29,6 +29,7 @@ const MAX_RATE_LIMIT_DELAY_MS = 1_200_000;
 const LOG_PATH = join(process.cwd(), "synapse.log");
 const STATUS_PATH = join(process.cwd(), "synapse.status");
 const CONVERSATION_PATH = join(process.cwd(), "conversation.json");
+const LAST_RUN_OUTPUT_PATH = join(process.cwd(), "last-run-output.txt");
 const WORKSPACE_NAME = process.env.WORKSPACE_NAME || "Synapse";
 
 interface ConversationEntry {
@@ -127,6 +128,8 @@ interface Event {
 
 const WORKSPACE_ID = process.env.WORKSPACE_ID || "";
 
+const AGENT_PREAMBLE = "You are a long-lived agent in a distributed system. You will receive direct messages (DMs) from the lead engineer via the event system. DMs are how tasks are delegated and priorities are set. You MUST check for and respond to all DMs promptly with status updates or acknowledgments. Do not ignore DMs.\n\n";
+
 let batch: Event[] = [];
 let settlingTimer: ReturnType<typeof setTimeout> | null = null;
 let claudeRunning = false;
@@ -156,8 +159,8 @@ async function processBatch() {
     const startTime = Date.now();
     const oversized = isSessionOversized();
     if (oversized) log(`Session exceeds ${SESSION_MAX_SIZE_MB}MB — spawning without --continue`);
-    const spawnInput = oversized ? buildFallbackPrompt(payload) : payload;
-    const handle = spawnClaude(spawnInput, !oversized);
+    const spawnInput = AGENT_PREAMBLE + (oversized ? buildFallbackPrompt(payload) : payload);
+    const handle = spawnClaude(spawnInput, !oversized, LAST_RUN_OUTPUT_PATH);
     currentClaudeHandle = handle;
     const result = await handle.result;
     currentClaudeHandle = null;
@@ -252,7 +255,7 @@ async function handleEmergency(event: Event) {
     return `[${prefix}] ${e.message}`;
   }).join("\n");
 
-  const emergencyPrompt = `EMERGENCY INTERRUPT from user: ${message}\n\nRecent conversation:\n${recentEntries}\n\nDrop what you were doing and address this emergency immediately.`;
+  const emergencyPrompt = AGENT_PREAMBLE + `EMERGENCY INTERRUPT from user: ${message}\n\nRecent conversation:\n${recentEntries}\n\nDrop what you were doing and address this emergency immediately.`;
 
   claudeRunning = true;
   setStatus("running");
@@ -305,16 +308,14 @@ async function start() {
     (async () => {
       setStatus("running");
       claudeRunning = true;
-      // Get recent conversation entries as resume context
-      const recentEntries = conversation.slice(-20).map(e => {
-        const prefix = e.type === "prompt" ? "PROMPT" : e.type === "dm" ? `DM from ${e.from}` : e.type === "response" ? `YOU replied` : "SYSTEM";
-        return `[${prefix}] ${e.message}`;
-      }).join("\n");
-      const resumePrompt = recentEntries
-        ? `You were interrupted mid-execution. Here is your recent conversation:\n\n${recentEntries}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the conversation above, identify what task you were working on, and CONTINUE doing it. Resume the actual work.`
-        : "You were interrupted mid-execution. IMPORTANT: Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.";
+      // Use output from previous failed run as resume context
+      let lastOutput = "";
+      try { lastOutput = readFileSync(LAST_RUN_OUTPUT_PATH, "utf-8").trim(); } catch {}
+      const resumePrompt = AGENT_PREAMBLE + (lastOutput
+        ? `You were interrupted mid-execution. Here is the output from your previous run:\n\n${lastOutput}\n\nIMPORTANT: You were in the middle of a task when you were killed. Do NOT just check state and stop. Do NOT announce you are back. Look at the output above, identify what task you were working on, and CONTINUE doing it. Resume the actual work.`
+        : "You were interrupted mid-execution. IMPORTANT: Do NOT just check state and stop. Do NOT announce you are back. Identify what task you were working on and CONTINUE doing it. Resume the actual work.");
       addConversationEntry({ timestamp: Date.now(), type: "system", from: "system", message: "Thinking..." });
-      const handle = spawnClaude(resumePrompt);
+      const handle = spawnClaude(resumePrompt, true, LAST_RUN_OUTPUT_PATH);
       currentClaudeHandle = handle;
       const result = await handle.result;
       currentClaudeHandle = null;
